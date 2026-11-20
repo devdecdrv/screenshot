@@ -15,11 +15,11 @@ class AudioCaptureService : Service() {
     private var captureThread: Thread? = null
 
     companion object {
-        const val CHANNEL_ID  = "audio_service"
-        const val SAMPLE_RATE = 44100
+        const val CHANNEL_ID   = "audio_service"
+        const val SAMPLE_RATE  = 44100
         const val CHANNEL_MASK = AudioFormat.CHANNEL_IN_STEREO
-        const val ENCODING    = AudioFormat.ENCODING_PCM_16BIT
-        const val CHUNK_SIZE  = 4096
+        const val ENCODING     = AudioFormat.ENCODING_PCM_16BIT
+        const val CHUNK_SIZE   = 4096
 
         @Volatile var latestPcmChunk: ByteArray? = null
         @Volatile var isCapturing = false
@@ -44,72 +44,66 @@ class AudioCaptureService : Service() {
     }
 
     private fun startCapture() {
-        val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
-            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_GAME)
-            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-            .addMatchingUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-            .addMatchingUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
-            .build()
+        try {
+            // Only safe usages — no VOICE_COMMUNICATION
+            val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
 
-        val minBuf = maxOf(
-            AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_MASK, ENCODING),
-            CHUNK_SIZE * 4
-        )
-
-        audioRecord = AudioRecord.Builder()
-            .setAudioPlaybackCaptureConfig(config)
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(SAMPLE_RATE)
-                    .setChannelMask(CHANNEL_MASK)
-                    .setEncoding(ENCODING)
-                    .build()
+            val minBuf = maxOf(
+                AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_MASK, ENCODING),
+                CHUNK_SIZE * 4
             )
-            .setBufferSizeInBytes(minBuf)
-            .build()
 
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            // Fallback: mic capture
-            startMicCapture()
-            return
-        }
+            audioRecord = AudioRecord.Builder()
+                .setAudioPlaybackCaptureConfig(config)
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(CHANNEL_MASK)
+                        .setEncoding(ENCODING)
+                        .build()
+                )
+                .setBufferSizeInBytes(minBuf)
+                .build()
 
-        audioRecord?.startRecording()
-        isCapturing = true
-
-        captureThread = Thread {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val buf = ByteArray(CHUNK_SIZE)
-            while (isCapturing) {
-                val read = audioRecord?.read(buf, 0, buf.size) ?: break
-                if (read > 0) {
-                    latestPcmChunk = buf.copyOf(read)
-                }
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                throw Exception("AudioRecord not initialized")
             }
-        }.also { it.start() }
+
+            audioRecord?.startRecording()
+            isCapturing = true
+            startReadLoop()
+
+        } catch (e: Exception) {
+            // Fallback: microphone
+            startMicFallback()
+        }
     }
 
-    private fun startMicCapture() {
-        // Fallback to microphone if playback capture fails
-        val minBuf = maxOf(
-            AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_MASK, ENCODING),
-            CHUNK_SIZE * 4
-        )
+    private fun startMicFallback() {
+        try {
+            val minBuf = maxOf(
+                AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_MASK, ENCODING),
+                CHUNK_SIZE * 4
+            )
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE, CHANNEL_MASK, ENCODING, minBuf
+            )
+            audioRecord?.startRecording()
+            isCapturing = true
+            startReadLoop()
+        } catch (e: Exception) {
+            isCapturing = false
+        }
+    }
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            CHANNEL_MASK,
-            ENCODING,
-            minBuf
-        )
-
-        audioRecord?.startRecording()
-        isCapturing = true
-
+    private fun startReadLoop() {
         captureThread = Thread {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val buf = ByteArray(CHUNK_SIZE)
             while (isCapturing) {
                 val read = audioRecord?.read(buf, 0, buf.size) ?: break
@@ -125,7 +119,7 @@ class AudioCaptureService : Service() {
         captureThread?.interrupt()
         audioRecord?.stop()
         audioRecord?.release()
-        mediaProjection.stop()
+        runCatching { mediaProjection.stop() }
         super.onDestroy()
     }
 
