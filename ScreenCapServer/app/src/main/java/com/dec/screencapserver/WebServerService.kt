@@ -53,78 +53,70 @@ class CapServer(port: Int) : NanoHTTPD(port) {
   <title>Live</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{background:#000;display:flex;flex-direction:column;
-         align-items:center;min-height:100vh}
-    #bar{width:100%;background:#111;color:#0f0;font:11px monospace;
-         padding:4px 8px;display:flex;justify-content:space-between;align-items:center}
-    #f{width:100%;height:calc(100vh - 28px);object-fit:contain}
-    audio{height:28px;width:220px}
-    button{background:#1a1;color:#fff;border:none;padding:4px 10px;
-           font-size:11px;cursor:pointer;border-radius:3px}
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#000; display:flex; flex-direction:column;
+           align-items:center; min-height:100vh; }
+    #bar { width:100%; background:#111; color:#0f0; font:11px monospace;
+           padding:4px 10px; display:flex; justify-content:space-between;
+           align-items:center; gap:8px; }
+    #f { width:100%; height:calc(100vh - 30px); object-fit:contain; display:block; }
+    button { background:#1a7a1a; color:#fff; border:none; padding:3px 10px;
+             font-size:11px; cursor:pointer; border-radius:3px; }
+    button.on { background:#7a1a1a; }
+    audio { display:none; }
   </style>
 </head>
 <body>
   <div id="bar">
     <span id="info">connecting...</span>
-    <audio id="aud" autoplay></audio>
-    <button onclick="toggleAudio()">🔊 Audio</button>
+    <button id="abtn" onclick="toggleAudio()">🔇 Audio OFF</button>
   </div>
-  <img id="f" src="/frame">
+  <img id="f" src="/frame" alt="">
+  <audio id="aud" autoplay></audio>
 
   <script>
     const img  = document.getElementById('f');
     const info = document.getElementById('info');
     const aud  = document.getElementById('aud');
-    let n=0, t0=Date.now(), audioOn=false;
+    const abtn = document.getElementById('abtn');
+    let n = 0, t0 = Date.now(), audioOn = false;
 
-    // ── Screen stream ──────────────────────────────
-    function next() {
+    // ── Screen stream ──────────────────────────────────────────
+    function nextFrame() {
       img.src = '/frame?_=' + Date.now();
     }
-    img.onload  = () => { 
+    img.onload = function() {
       n++;
-      const fps = (n/((Date.now()-t0)/1000)).toFixed(1);
-      info.textContent = 'frames:'+n+' fps:'+fps;
-      requestAnimationFrame(next);
+      const elapsed = (Date.now() - t0) / 1000;
+      const fps = elapsed > 0 ? (n / elapsed).toFixed(1) : '0';
+      info.textContent = 'frames: ' + n + '  |  fps: ' + fps;
+      requestAnimationFrame(nextFrame);
     };
-    img.onerror = () => setTimeout(next, 500);
-    next();
+    img.onerror = function() {
+      setTimeout(nextFrame, 500);
+    };
+    nextFrame();
 
-    // ── Audio stream ───────────────────────────────
+    // ── Audio stream ───────────────────────────────────────────
     function toggleAudio() {
       if (!audioOn) {
-        // Use MediaSource for low-latency PCM streaming
-        aud.src = '/audio';
-        aud.play().catch(()=>{});
+        aud.src = '/audio?_=' + Date.now();
+        aud.play().catch(function(e) { console.log('audio:', e); });
         audioOn = true;
+        abtn.textContent = '🔊 Audio ON';
+        abtn.className = 'on';
       } else {
+        aud.pause();
         aud.src = '';
         audioOn = false;
+        abtn.textContent = '🔇 Audio OFF';
+        abtn.className = '';
       }
     }
   </script>
 </body>
 </html>
     """.trimIndent()
-
-    // WAV header for raw PCM stream
-    private fun wavHeader(sampleRate: Int = 44100, channels: Int = 2): ByteArray {
-        // Streaming WAV — data chunk size = 0xFFFFFFFF (unknown)
-        val h = ByteArray(44)
-        fun int2(v: Int, off: Int) { h[off]=(v and 0xFF).toByte(); h[off+1]=(v shr 8 and 0xFF).toByte() }
-        fun int4(v: Int, off: Int) { h[off]=(v and 0xFF).toByte(); h[off+1]=(v shr 8 and 0xFF).toByte(); h[off+2]=(v shr 16 and 0xFF).toByte(); h[off+3]=(v shr 24 and 0xFF).toByte() }
-        "RIFF".toByteArray().copyInto(h, 0)
-        int4(0x7FFFFFFF, 4)
-        "WAVE".toByteArray().copyInto(h, 8)
-        "fmt ".toByteArray().copyInto(h, 12)
-        int4(16, 16); int2(1, 20); int2(channels, 22)
-        int4(sampleRate, 24); int4(sampleRate * channels * 2, 28)
-        int2(channels * 2, 32); int2(16, 34)
-        "data".toByteArray().copyInto(h, 36)
-        int4(0x7FFFFFFF, 40)
-        return h
-    }
 
     override fun serve(session: IHTTPSession): Response {
         return when (session.uri) {
@@ -144,39 +136,67 @@ class CapServer(port: Int) : NanoHTTPD(port) {
             Response.Status.OK, "image/jpeg",
             jpeg.inputStream(), jpeg.size.toLong()
         )
-        r.addHeader("Cache-Control", "no-cache, no-store")
+        r.addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
         r.addHeader("Access-Control-Allow-Origin", "*")
         return r
     }
 
     private fun serveAudio(): Response {
-        // Chunked streaming WAV — browser plays as it receives
-        val pipe = PipedOutputStream()
-        val input = PipedInputStream(pipe, 65536)
+        val pipe  = PipedOutputStream()
+        val input = PipedInputStream(pipe, 131072)
 
         Thread {
             try {
-                pipe.write(wavHeader())
+                pipe.write(buildWavHeader())
+                pipe.flush()
                 while (true) {
                     val chunk = AudioCaptureService.latestPcmChunk
                     if (chunk != null) {
                         pipe.write(chunk)
                         pipe.flush()
                     }
-                    Thread.sleep(20)
+                    Thread.sleep(10)
                 }
-            } catch (_: Exception) {}
-            finally { pipe.close() }
-        }.start()
+            } catch (_: Exception) {
+            } finally {
+                runCatching { pipe.close() }
+            }
+        }.also { it.isDaemon = true }.start()
 
         val r = newChunkedResponse(Response.Status.OK, "audio/wav", input)
         r.addHeader("Access-Control-Allow-Origin", "*")
-        r.addHeader("Cache-Control", "no-cache")
+        r.addHeader("Cache-Control", "no-cache, no-store")
+        r.addHeader("Connection", "keep-alive")
         return r
     }
 
+    private fun buildWavHeader(
+        sampleRate: Int    = AudioCaptureService.SAMPLE_RATE,
+        channels: Int      = 2,
+        bitsPerSample: Int = 16
+    ): ByteArray {
+        val h          = ByteArray(44)
+        val byteRate   = sampleRate * channels * bitsPerSample / 8
+        val blockAlign = channels * bitsPerSample / 8
+
+        fun w2(v: Int, o: Int) {
+            h[o]   = (v and 0xFF).toByte()
+            h[o+1] = (v shr 8 and 0xFF).toByte()
+        }
+        fun w4(v: Int, o: Int) { w2(v, o); w2(v shr 16, o + 2) }
+        fun str(s: String, o: Int) = s.toByteArray().copyInto(h, o)
+
+        str("RIFF", 0);  w4(0x7FFFFFFF, 4);  str("WAVE", 8)
+        str("fmt ", 12); w4(16, 16);          w2(1, 20)
+        w2(channels, 22);    w4(sampleRate, 24)
+        w4(byteRate, 28);    w2(blockAlign, 32)
+        w2(bitsPerSample, 34)
+        str("data", 36); w4(0x7FFFFFFF, 40)
+        return h
+    }
+
     private fun serveStatus(): Response {
-        val json = """{"frames":${ScreenCaptureService.frameCount},"ts":${ScreenCaptureService.frameTimestamp}}"""
+        val json = """{"frames":${ScreenCaptureService.frameCount},"ts":${ScreenCaptureService.frameTimestamp},"audio":${AudioCaptureService.isCapturing}}"""
         val r = newFixedLengthResponse(Response.Status.OK, "application/json", json)
         r.addHeader("Access-Control-Allow-Origin", "*")
         return r
