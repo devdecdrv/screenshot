@@ -45,6 +45,12 @@ class MainActivity : AppCompatActivity() {
                 putExtra("data", data)
             }
             startForegroundService(intent)
+            // Start audio capture with same projection token
+val audioIntent = Intent(this, AudioCaptureService::class.java).apply {
+    putExtra("resultCode", resultCode)
+    putExtra("data", data)
+}
+startForegroundService(audioIntent)
             statusTv.text = "Starting... tunnel creating..."
         }
     }
