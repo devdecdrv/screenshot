@@ -30,16 +30,11 @@ android {
             minifyEnabled   false
             shrinkResources false
         }
-        debug {
-            minifyEnabled   false
-            shrinkResources false
-        }
     }
 
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            pickFirsts += ['**/*.so']
         }
         resources {
             excludes += [
@@ -62,6 +57,11 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+}
+
+repositories {
+    google()
+    mavenCentral()
 }
 
 dependencies {
