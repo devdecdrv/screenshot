@@ -35,17 +35,26 @@ jobs:
           gradle wrapper --gradle-version 8.6 --distribution-type bin
           chmod +x gradlew
 
-      - name: Decode keystore
+      - name: Generate Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.keystore
+          keytool -genkey -v \
+            -keystore app/release.keystore \
+            -alias deckey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass decpass123 \
+            -keypass decpass123 \
+            -dname "CN=Dec,OU=Dev,O=Dec,L=IN,S=IN,C=IN" \
+            -noprompt
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         env:
           KEYSTORE_PATH: release.keystore
-          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
-          KEY_ALIAS:     ${{ secrets.KEY_ALIAS }}
-          KEY_PASS:      ${{ secrets.KEY_PASS }}
+          KEYSTORE_PASS: decpass123
+          KEY_ALIAS:     deckey
+          KEY_PASS:      decpass123
 
       - name: Get version info
         id: ver
