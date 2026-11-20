@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnStop).setOnClickListener {
             stopService(Intent(this, ScreenCaptureService::class.java))
+            stopService(Intent(this, AudioCaptureService::class.java))
             stopService(Intent(this, WebServerService::class.java))
             statusTv.text = "Stopped."
         }
@@ -38,19 +39,24 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == PROJECTION_REQUEST && resultCode == Activity.RESULT_OK && data != null) {
+
+            // Web server
             startService(Intent(this, WebServerService::class.java))
 
-            val intent = Intent(this, ScreenCaptureService::class.java).apply {
+            // Screen capture
+            val screenIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 putExtra("resultCode", resultCode)
                 putExtra("data", data)
             }
-            startForegroundService(intent)
-            // Start audio capture with same projection token
-val audioIntent = Intent(this, AudioCaptureService::class.java).apply {
-    putExtra("resultCode", resultCode)
-    putExtra("data", data)
-}
-startForegroundService(audioIntent)
+            startForegroundService(screenIntent)
+
+            // Audio capture
+            val audioIntent = Intent(this, AudioCaptureService::class.java).apply {
+                putExtra("resultCode", resultCode)
+                putExtra("data", data)
+            }
+            startForegroundService(audioIntent)
+
             statusTv.text = "Starting... tunnel creating..."
         }
     }
