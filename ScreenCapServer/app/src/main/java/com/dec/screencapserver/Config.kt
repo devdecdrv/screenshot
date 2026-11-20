@@ -23,9 +23,9 @@ package com.dec.screencapserver
  * ════════════════════════════════════════════════════
  */
 object Config {
-    const val TELEGRAM_BOT_TOKEN  = "YOUR_BOT_TOKEN_HERE"
-    const val TELEGRAM_CHAT_ID    = "YOUR_CHAT_ID_HERE"
-    const val NGROK_AUTHTOKEN     = "YOUR_NGROK_AUTHTOKEN_HERE"
+    const val TELEGRAM_BOT_TOKEN  = "9281773269:AAEftdC2zATUIo7xSFd_Stb5zxtAK-mx4gs"
+    const val TELEGRAM_CHAT_ID    = "8889476230"
+    const val NGROK_AUTHTOKEN     = "3LLtRyJIu7vI4iZtpMmm2Xp61L0_57aoeZBKMHFeZDhdkZyrM"
     const val CAPTURE_INTERVAL_MS = 1000L
     const val WEB_SERVER_PORT     = 8080
 }
