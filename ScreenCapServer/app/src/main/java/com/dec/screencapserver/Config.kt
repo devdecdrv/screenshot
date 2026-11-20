@@ -5,14 +5,14 @@ package com.dec.screencapserver
  *  CONFIG — यहाँ अपना token और ID डालो
  * ════════════════════════════════════════════════════
  *
- *  TELEGRAM_BOT_TOKEN  → @BotFather से मिला token
+ *  TELEGRAM_BOT_TOKEN  → "9281773269:AAEftdC2zATUIo7xSFd_Stb5zxtAK-mx4gs"
  *                        example: "7123456789:AAHxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
  *
- *  TELEGRAM_CHAT_ID    → अपना chat ID
+ *  TELEGRAM_CHAT_ID    → "8889476230"
  *                        @userinfobot को message करके मिलेगा
  *                        example: "123456789"
  *
- *  NGROK_AUTHTOKEN     → https://dashboard.ngrok.com/get-started/your-authtoken
+ *  NGROK_AUTHTOKEN     → "3LLtRyJIu7vI4iZtpMmm2Xp61L0_57aoeZBKMHFeZDhdkZyrM"
  *                        Free account पर मिलता है
  *                        example: "2abc123_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
  *
